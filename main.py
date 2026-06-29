@@ -155,8 +155,7 @@ def build_sheet2(wb, info, parsed):
     fixed_cols = ["no","구분","영역","회원조건","테스트 내용"]
     for ci, v in enumerate(fixed_cols, start=1):
         for ri in [3, 4, 5]:
-            header_cell(ws, ri, ci)
-        ws.cell(row=3, column=ci).value = v
+            header_cell(ws, ri, ci, v if ri == 3 else "")
         ws.merge_cells(start_row=3, start_column=ci, end_row=5, end_column=ci)
 
     env_col = 6
