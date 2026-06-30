@@ -329,12 +329,12 @@ def build_sheet4(wb):
 # ── Gemini 분석 ───────────────────────────────────────────────
 def analyze_with_gemini(api_key, excel_text, images, info):
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-3.1-flash-lite")
+    model = genai.GenerativeModel("gemini-2.0-flash-lite")
 
     testers = info["testers"]
     tester_desc = "\n".join([f"{t['label']}: {t['name']} (PC: {t['pc']}, M: {t['mobile']})" for t in testers])
 
-    prompt = f"""당신은 QA 테스트시트 전문가입니다. 아래 요구사항정의서를 분석하여 반드시 JSON만 출력하세요.
+    prompt = f"""당신은 QA 테스트시트 전문가입니다. 아래 요구사항정의서와 기획안 이미지를 분석하여 반드시 JSON만 출력하세요. 마크다운 코드블록 없이 순수 JSON만 출력합니다.
 
 ## 프로젝트 정보
 - 서비스명: {info['serviceName']}
@@ -347,7 +347,35 @@ def analyze_with_gemini(api_key, excel_text, images, info):
 ## 요구사항정의서
 {excel_text}
 
-## 출력 형식 (순수 JSON만)
+## 테스트 케이스 작성 지침
+
+### 기본 원칙
+1. 요구사항정의서의 모든 기능·정책·예외·케이스를 1:1로 빠짐없이 매핑한다
+2. 기획안 원문을 왜곡하지 않고, 적힌 문구·수치·조건을 그대로 반영한다 (임의 일반화·축약 금지)
+3. 중복되는 테스트 내용은 작성하지 않는다 (동일한 검증문 한 번만)
+4. 단순 글자수·표시 자릿수 검증은 작성하지 않는다 (기능·정책·노출 로직 검증에 집중)
+5. 각 테스트는 반드시 "~되는가?" 형식의 검증문으로 작성한다
+6. 상세 조건은 \\n(줄바꿈)으로 정리한다
+7. 관련 케이스는 인접 배치한다
+8. 첨부된 기획안 이미지가 있으면 이미지의 UI 구조와 흐름도 참고하여 테스트 케이스 작성
+
+### 구분/영역/회원조건 작성 규칙
+- 구분: 화면/기능 단위 (기획안 기준 상위 그룹)
+- 영역: 세부 영역
+- 회원조건: 로그인/비로그인/이력서보유 등 정책 조건
+- 연속으로 같은 값이면 동일하게 입력 (병합은 코드에서 처리)
+- 케이스구분(케이스 구분행)은 회원조건 자체가 분기될 때만 사용
+  예: 비로그인 vs 로그인, Case 1) vs Case 2) 처럼 서로 다른 시나리오로 갈라질 때
+  케이스구분행의 테스트내용 = "Case 1) 비로그인" 같은 구분 텍스트
+
+### 데이터 확인 필요 행
+실제 DB/리스트 데이터, 정렬 순서, 노출 회원수 등을 대조해야 검증 가능한 케이스는 데이터확인필요: true
+예: 전체 기업리스트가 관심기업 설정 회원수 순으로 노출되는가?, 정렬 순서가 올바른가?
+
+### 주요확인사항
+각 환경(DEV/ALPHA/BETA)별로 요구사항정의서의 기능 단위를 기반으로 구체적인 확인사항 작성
+
+## 출력 형식 (순수 JSON만, 다른 텍스트 절대 없이)
 {{
   "testCases": [
     {{
@@ -355,34 +383,36 @@ def analyze_with_gemini(api_key, excel_text, images, info):
       "구분": "화면/기능 단위",
       "영역": "세부 영역",
       "회원조건": "로그인/비로그인 등",
-      "테스트내용": "~되는가?\\n상세조건",
+      "테스트내용": "~되는가?\\n상세 조건1\\n상세 조건2",
       "데이터확인필요": false,
       "케이스구분": false
     }}
   ],
   "주요확인사항": {{
-    "dev": "DEV 주요 확인사항",
-    "alpha": "ALPHA 주요 확인사항",
-    "beta": "BETA 주요 확인사항"
+    "dev": "DEV 단계 주요 확인사항 (구체적으로)",
+    "alpha": "ALPHA 단계 주요 확인사항 (구체적으로)",
+    "beta": "BETA 단계 주요 확인사항 (구체적으로)"
   }}
 }}
 
-## 작성 규칙
-1. 중복 테스트 케이스 제거
-2. 글자수/자릿수 검증 제외 (기능·정책·노출 로직만)
-3. 테스트내용은 반드시 "~되는가?" 형식
-4. DB/정렬/노출 데이터 대조 필요한 케이스는 데이터확인필요: true
-5. 비로그인 vs 로그인 등 회원조건 분기 시 케이스구분: true (앞에 구분행 삽입)
-6. 케이스구분행의 테스트내용 = "Case 1) 비로그인" 같은 구분 텍스트
-7. 관련 케이스는 인접 배치"""
+요구사항정의서의 모든 항목을 빠짐없이 테스트 케이스로 변환하세요. 테스트 케이스는 최소 20개 이상 작성하세요."""
 
     parts = [prompt]
     for img in images:
         import base64
         parts.append({"mime_type": img["mimeType"], "data": base64.b64decode(img["base64"])})
 
-    response = model.generate_content(parts)
-    text = response.text
+    response = model.generate_content(
+        parts,
+        generation_config={"max_output_tokens": 8192, "temperature": 0.2}
+    )
+    text = response.text.strip()
+
+    # 마크다운 코드블록 제거
+    if text.startswith("```"):
+        text = re.sub(r'^```[a-z]*\n?', '', text)
+        text = re.sub(r'\n?```$', '', text)
+    text = text.strip()
 
     json_match = re.search(r'\{[\s\S]*\}', text)
     if not json_match:
