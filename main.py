@@ -404,7 +404,11 @@ def analyze_with_gemini(api_key, excel_text, images, info):
 
     response = model.generate_content(
         parts,
-        generation_config={"max_output_tokens": 8192, "temperature": 0.2}
+        generation_config={
+            "max_output_tokens": 8192,
+            "temperature": 0.2,
+            "response_mime_type": "application/json"
+        }
     )
     text = response.text.strip()
 
@@ -514,8 +518,11 @@ def analyze_with_gemini(api_key, excel_text, images, info):
     except Exception:
         pass
 
-    # 모든 복구 시도 실패
-    raise ValueError(f"Gemini 응답을 JSON으로 파싱할 수 없습니다. 다시 시도해주세요. (원본 일부: {json_str[:200]})")
+    # 모든 복구 시도 실패 - 전체 원본을 로그에 남김 (Railway 로그에서 확인 가능)
+    print("=== GEMINI 원본 응답 (파싱 실패) ===")
+    print(json_str)
+    print("=== 끝 ===")
+    raise ValueError(f"Gemini 응답을 JSON으로 파싱할 수 없습니다. 다시 시도해주세요. (원본 일부: {json_str[:300]})")
 
 # ── 메인 엔드포인트 ───────────────────────────────────────────
 from fastapi import HTTPException
