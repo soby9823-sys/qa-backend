@@ -444,17 +444,20 @@ async def generate(
         build_sheet4(wb)
 
         today = date.today().strftime("%y%m%d")
-        filename = f"{serviceName}_테스트시트_박소연_{today}.xlsx"
+        filename_ko = f"{serviceName}_테스트시트_박소연_{today}.xlsx"
+        filename_ascii = f"testsheet_{today}.xlsx"
+        encoded_filename = filename_ko.encode('utf-8').hex()
 
         buf = io.BytesIO()
         wb.save(buf)
         buf.seek(0)
 
+        from urllib.parse import quote
         return StreamingResponse(
             buf,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={
-                "Content-Disposition": f"attachment; filename*=UTF-8''{filename}",
+                "Content-Disposition": f"attachment; filename=\"{filename_ascii}\"; filename*=UTF-8''{quote(filename_ko)}",
                 "Access-Control-Expose-Headers": "Content-Disposition"
             }
         )
