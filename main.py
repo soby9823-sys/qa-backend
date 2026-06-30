@@ -317,8 +317,7 @@ def build_sheet4(wb):
     ws.column_dimensions["B"].width = 60
     ws.column_dimensions["C"].width = 30
     for ci, h in enumerate(["no","이미지","비고"], start=1):
-        header_cell(ws, 1, ci)
-        ws.cell(row=1, column=ci).value = h
+        header_cell(ws, 1, ci, h)
     for r in range(2, 22):
         ws.row_dimensions[r].height = 80
         set_cell(ws, r, 1, r-1, font=FONT_BASE(), align=ALIGN_CC, border=thin_border())
