@@ -414,10 +414,47 @@ def analyze_with_gemini(api_key, excel_text, images, info):
         text = re.sub(r'\n?```$', '', text)
     text = text.strip()
 
+    # JSON 추출
     json_match = re.search(r'\{[\s\S]*\}', text)
     if not json_match:
         raise ValueError("Gemini 응답에서 JSON을 찾을 수 없습니다.")
-    return json.loads(json_match.group())
+
+    json_str = json_match.group()
+
+    # JSON 문자열 내 제어문자 정리
+    # 문자열 값 안의 실제 줄바꿈을 \\n으로 변환
+    def fix_json_string(s):
+        result = []
+        in_string = False
+        escape = False
+        for ch in s:
+            if escape:
+                result.append(ch)
+                escape = False
+            elif ch == '\\':
+                result.append(ch)
+                escape = True
+            elif ch == '"' and not escape:
+                in_string = not in_string
+                result.append(ch)
+            elif in_string and ch == '\n':
+                result.append('\\n')
+            elif in_string and ch == '\r':
+                result.append('\\r')
+            elif in_string and ch == '\t':
+                result.append('\\t')
+            else:
+                result.append(ch)
+        return ''.join(result)
+
+    json_str = fix_json_string(json_str)
+
+    try:
+        return json.loads(json_str)
+    except json.JSONDecodeError as e:
+        # 마지막 수단: 제어문자 전체 제거 후 재시도
+        json_str_clean = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', json_str)
+        return json.loads(json_str_clean)
 
 # ── 메인 엔드포인트 ───────────────────────────────────────────
 from fastapi import HTTPException
