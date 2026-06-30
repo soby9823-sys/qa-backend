@@ -449,12 +449,73 @@ def analyze_with_gemini(api_key, excel_text, images, info):
 
     json_str = fix_json_string(json_str)
 
+    def try_parse(s):
+        return json.loads(s)
+
+    # 1차 시도: 그대로
     try:
-        return json.loads(json_str)
-    except json.JSONDecodeError as e:
-        # 마지막 수단: 제어문자 전체 제거 후 재시도
-        json_str_clean = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', json_str)
-        return json.loads(json_str_clean)
+        return try_parse(json_str)
+    except json.JSONDecodeError:
+        pass
+
+    # 2차 시도: 제어문자 제거
+    try:
+        cleaned = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', json_str)
+        return try_parse(cleaned)
+    except json.JSONDecodeError:
+        pass
+
+    # 3차 시도: 트레일링 콤마 제거 (}, ] 앞의 콤마)
+    try:
+        cleaned = re.sub(r',(\s*[}\]])', r'\1', json_str)
+        cleaned = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', cleaned)
+        return try_parse(cleaned)
+    except json.JSONDecodeError:
+        pass
+
+    # 4차 시도: testCases 배열만 따로 추출해서 항목 단위로 복구
+    try:
+        tc_match = re.search(r'"testCases"\s*:\s*\[([\s\S]*?)\]\s*,\s*"주요확인사항"', json_str)
+        if tc_match:
+            items_str = tc_match.group(1)
+            # 개별 객체 단위로 분리 (균형 잡힌 중괄호 기준)
+            items = []
+            depth = 0
+            start = None
+            for i, ch in enumerate(items_str):
+                if ch == '{':
+                    if depth == 0:
+                        start = i
+                    depth += 1
+                elif ch == '}':
+                    depth -= 1
+                    if depth == 0 and start is not None:
+                        items.append(items_str[start:i+1])
+                        start = None
+            valid_items = []
+            for it in items:
+                it_clean = re.sub(r',(\s*\})', r'\1', it)
+                it_clean = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', it_clean)
+                try:
+                    valid_items.append(json.loads(it_clean))
+                except json.JSONDecodeError:
+                    continue  # 깨진 항목은 건너뜀
+
+            sa_match = re.search(r'"주요확인사항"\s*:\s*(\{[\s\S]*?\})\s*\}', json_str)
+            sa = {}
+            if sa_match:
+                try:
+                    sa = json.loads(re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', sa_match.group(1)))
+                except json.JSONDecodeError:
+                    sa = {}
+
+            if valid_items:
+                return {"testCases": valid_items, "주요확인사항": sa}
+    except Exception:
+        pass
+
+    # 모든 복구 시도 실패
+    raise ValueError(f"Gemini 응답을 JSON으로 파싱할 수 없습니다. 다시 시도해주세요. (원본 일부: {json_str[:200]})")
 
 # ── 메인 엔드포인트 ───────────────────────────────────────────
 from fastapi import HTTPException
