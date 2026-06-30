@@ -10,7 +10,14 @@ from openpyxl.worksheet.datavalidation import DataValidation
 import google.generativeai as genai
 
 app = FastAPI()
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
+)
 
 # ── 색상/스타일 상수 ──────────────────────────────────────────
 GRAY       = PatternFill("solid", fgColor="BFBFBF")   # 헤더
@@ -384,6 +391,8 @@ def analyze_with_gemini(api_key, excel_text, images, info):
     return json.loads(json_match.group())
 
 # ── 메인 엔드포인트 ───────────────────────────────────────────
+from fastapi import HTTPException
+
 @app.post("/generate")
 async def generate(
     file:        UploadFile = File(...),
@@ -397,58 +406,61 @@ async def generate(
     extraNote:   str        = Form(""),
     apiKey:      str        = Form(...),
 ):
-    # Excel 읽기
-    content = await file.read()
-    xl = openpyxl.load_workbook(io.BytesIO(content))
-    excel_text = ""
-    for sn in xl.sheetnames:
-        ws = xl[sn]
-        rows = []
-        for row in ws.iter_rows(values_only=True):
-            row_vals = [str(c) if c is not None else "" for c in row]
-            if any(v.strip() for v in row_vals):
-                rows.append("\t".join(row_vals))
-        if rows:
-            excel_text += f"\n=== 시트: {sn} ===\n" + "\n".join(rows) + "\n"
-    excel_text = excel_text[:14000]
+    try:
+        # Excel 읽기
+        content = await file.read()
+        xl = openpyxl.load_workbook(io.BytesIO(content))
+        excel_text = ""
+        for sn in xl.sheetnames:
+            ws = xl[sn]
+            rows = []
+            for row in ws.iter_rows(values_only=True):
+                row_vals = [str(c) if c is not None else "" for c in row]
+                if any(v.strip() for v in row_vals):
+                    rows.append("\t".join(row_vals))
+            if rows:
+                excel_text += f"\n=== 시트: {sn} ===\n" + "\n".join(rows) + "\n"
+        excel_text = excel_text[:14000]
 
-    info = {
-        "serviceName": serviceName,
-        "openDate":    openDate,
-        "devDays":     devDays,
-        "alphaDays":   alphaDays,
-        "betaDays":    betaDays,
-        "testers":     json.loads(testers),
-        "extraNote":   extraNote,
-    }
-    images_data = json.loads(images)
+        info = {
+            "serviceName": serviceName,
+            "openDate":    openDate,
+            "devDays":     devDays,
+            "alphaDays":   alphaDays,
+            "betaDays":    betaDays,
+            "testers":     json.loads(testers),
+            "extraNote":   extraNote,
+        }
+        images_data = json.loads(images)
 
-    # Gemini 분석
-    parsed = analyze_with_gemini(apiKey, excel_text, images_data, info)
+        # Gemini 분석
+        parsed = analyze_with_gemini(apiKey, excel_text, images_data, info)
 
-    # xlsx 생성
-    wb = openpyxl.Workbook()
-    wb.remove(wb.active)  # 기본 시트 제거
-    build_sheet1(wb, info, parsed)
-    build_sheet2(wb, info, parsed)
-    build_sheet3(wb)
-    build_sheet4(wb)
+        # xlsx 생성
+        wb = openpyxl.Workbook()
+        wb.remove(wb.active)
+        build_sheet1(wb, info, parsed)
+        build_sheet2(wb, info, parsed)
+        build_sheet3(wb)
+        build_sheet4(wb)
 
-    # 모든 시트 기본 폰트 설정
-    from openpyxl.styles.named_styles import NamedStyle
-    today = date.today().strftime("%y%m%d")
-    filename = f"{serviceName}_테스트시트_박소연_{today}.xlsx"
+        today = date.today().strftime("%y%m%d")
+        filename = f"{serviceName}_테스트시트_박소연_{today}.xlsx"
 
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
 
-    return StreamingResponse(
-        buf,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}",
-                 "Access-Control-Expose-Headers": "Content-Disposition"}
-    )
+        return StreamingResponse(
+            buf,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": f"attachment; filename*=UTF-8''{filename}",
+                "Access-Control-Expose-Headers": "Content-Disposition"
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/")
 def root():
