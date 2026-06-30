@@ -329,7 +329,7 @@ def build_sheet4(wb):
 # ── Gemini 분석 ───────────────────────────────────────────────
 def analyze_with_gemini(api_key, excel_text, images, info):
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-2.0-flash-lite")
+    model = genai.GenerativeModel("gemini-3.5-flash")
 
     testers = info["testers"]
     tester_desc = "\n".join([f"{t['label']}: {t['name']} (PC: {t['pc']}, M: {t['mobile']})" for t in testers])
